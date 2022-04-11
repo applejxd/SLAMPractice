@@ -6,6 +6,8 @@ find_package(Sophus REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Ceres 2.1.0 REQUIRED)
 find_package(g2o REQUIRED)
+# for matplotlibcpp
+find_package(PythonLibs REQUIRED)
 
 file(GLOB path_list *.cpp)
 foreach(path ${path_list})
@@ -26,12 +28,16 @@ foreach(path ${path_list})
 
     target_include_directories(${target_name} PUBLIC
             ${OpenCV_INCLUDE_DIRS}
-            ${G2O_INCLUDE_DIRS})
+            ${G2O_INCLUDE_DIRS}
+            # for matplotlibcpp
+            ${PYTHON_INCLUDE_DIRS})
     target_link_libraries(${target_name} PUBLIC
             glog::glog
             Eigen3::Eigen
             Sophus::Sophus
             ${OpenCV_LIBS}
             Ceres::ceres
-            g2o_core g2o_stuff)
+            g2o_core g2o_stuff
+            # for matplotlibcpp
+            ${PYTHON_LIBRARIES})
 endforeach()
