@@ -5,71 +5,109 @@
 #include <opencv2/core/core.hpp>
 #include <ceres/ceres.h>
 #include <chrono>
+#include <matplotlibcpp.h>
 
 using namespace std;
 
-// 代价函数的计算模型
+// コスト関数
 struct CURVE_FITTING_COST {
     CURVE_FITTING_COST(double x, double y) : _x(x), _y(y) {}
 
-    // 残差的计算
+    /** 残差の定義（自働微分のためテンプレート化）
+     * @tparam T double 型 or ceres::jet 型
+     * @param abc 最適化パラメータ
+     * @param residual 残差
+     */
     template<typename T>
-    bool operator()(
-            const T *const abc, // 模型参数，有3维
-            T *residual) const {
-        residual[0] = T(_y) - ceres::exp(abc[0] * T(_x) * T(_x) + abc[1] * T(_x) + abc[2]); // y-exp(ax^2+bx+c)
+    bool operator()(const T *const abc,T *residual) const {
+        // y-exp(ax^2+bx+c)
+        residual[0] = T(_y) - ceres::exp(abc[0] * T(_x) * T(_x) + abc[1] * T(_x) + abc[2]);
         return true;
     }
 
-    const double _x, _y;    // x,y数据
+    // 測定値
+    const double _x, _y;
 };
 
 int main() {
-    double ar = 1.0, br = 2.0, cr = 1.0;         // 真实参数值
-    double ae = 2.0, be = -1.0, ce = 5.0;        // 估计参数值
-    int N = 100;                                 // 数据点
-    double w_sigma = 1.0;                        // 噪声Sigma值
-    cv::RNG rng;                                 // OpenCV随机数产生器
-
-    vector<double> x_data, y_data;      // 数据
-    for (int i = 0; i < N; i++) {
-        double x = i / 100.0;
-        x_data.push_back(x);
-        y_data.push_back(exp(ar * x * x + br * x + cr) + rng.gaussian(w_sigma * w_sigma));
+    // サンプリング数
+    uint16_t N = 100;
+    // サンプリングダータ
+    vector<double> x_data, y_true_data, y_obs_data;
+    {
+        // パラメータの正解
+        double ar = 1.0, br = 2.0, cr = 1.0;
+        // ガウシアンノイズの標準偏差
+        double w_sigma = 1.0;
+        // 乱数生成器
+        cv::RNG rng;                                 // OpenCV随机数产生器
+        for (int i = 0; i < N; i++) {
+            double x = i / 100.0;
+            x_data.push_back(x);
+            y_true_data.push_back(exp(ar * x * x + br * x + cr));
+            y_obs_data.push_back(exp(ar * x * x + br * x + cr) + rng.gaussian(w_sigma * w_sigma));
+        }
     }
 
+    double ae = 2.0, be = -1.0, ce = 5.0;        // 估计参数值
     double abc[3] = {ae, be, ce};
 
-    // 构建最小二乘问题
-    ceres::Problem problem;
-    for (int i = 0; i < N; i++) {
-        problem.AddResidualBlock(     // 向问题中添加误差项
-                // 使用自动求导，模板参数：误差类型，输出维度，输入维度，维数要与前面struct中一致
-                new ceres::AutoDiffCostFunction<CURVE_FITTING_COST, 1, 3>(
-                        new CURVE_FITTING_COST(x_data[i], y_data[i])
-                ),
-                nullptr,            // 核函数，这里不使用，为空
-                abc                 // 待估计参数
-        );
+    ceres::Solver::Summary summary;
+    {
+        // 最適化タスク
+        ceres::Problem problem;
+        for (uint16_t i = 0; i < N; i++) {
+            problem.AddResidualBlock(
+                    // 目的関数は CURVE_FITTING_COST・関数の引数は1・最適化パラメータは3
+                    new ceres::AutoDiffCostFunction<CURVE_FITTING_COST, 1, 3>(
+                            new CURVE_FITTING_COST(x_data[i], y_obs_data[i])
+                    ),
+                    nullptr,
+                    // 最適化の初期値
+                    abc
+            );
+        }
+
+        // 最適化の方法
+        ceres::Solver::Options options;
+        options.linear_solver_type = ceres::DENSE_NORMAL_CHOLESKY;
+        options.minimizer_progress_to_stdout = true;
+
+        chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
+        ceres::Solve(options, &problem, &summary);
+        chrono::steady_clock::time_point t2 = chrono::steady_clock::now();
+        chrono::duration<double> time_used = chrono::duration_cast<chrono::duration<double>>(t2 - t1);
+        cout << "solve time cost = " << time_used.count() << " seconds. " << endl;
     }
 
-    // 配置求解器
-    ceres::Solver::Options options;     // 这里有很多配置项可以填
-    options.linear_solver_type = ceres::DENSE_NORMAL_CHOLESKY;  // 增量方程如何求解
-    options.minimizer_progress_to_stdout = true;   // 输出到cout
-
-    ceres::Solver::Summary summary;                // 优化信息
-    chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
-    ceres::Solve(options, &problem, &summary);  // 开始优化
-    chrono::steady_clock::time_point t2 = chrono::steady_clock::now();
-    chrono::duration<double> time_used = chrono::duration_cast<chrono::duration<double>>(t2 - t1);
-    cout << "solve time cost = " << time_used.count() << " seconds. " << endl;
-
-    // 输出结果
+    // 最適化結果
     cout << summary.BriefReport() << endl;
     cout << "estimated a,b,c = ";
     for (auto a:abc) cout << a << " ";
     cout << endl;
+
+    {
+        namespace plt = matplotlibcpp;
+
+        // 散布図のフォーマット
+        map<string, string> scatter_map;
+        scatter_map["c"] = "gray";
+        // 測定データ
+        plt::scatter(x_data, y_obs_data, 2.0, scatter_map);
+
+        // 答え
+        // cf. https://matplotlib.org/stable/tutorials/colors/colors.html
+        plt::plot(x_data, y_true_data, "tab:blue");
+
+        // 推定結果
+        vector<double> y_est_data;
+        for (const auto &x: x_data) {
+            y_est_data.push_back(exp(abc[0] * x * x + abc[1] * x + abc[2]));
+        }
+        plt::plot(x_data, y_est_data, "tab:orange");
+
+        plt::show();
+    }
 
     return 0;
 }
