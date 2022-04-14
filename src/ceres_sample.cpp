@@ -10,8 +10,8 @@
 using namespace std;
 
 // コスト関数
-struct CURVE_FITTING_COST {
-    CURVE_FITTING_COST(double x, double y) : _x(x), _y(y) {}
+struct polynomial {
+    polynomial(double x, double y) : _x(x), _y(y) {}
 
     /** 残差の定義（自働微分のためテンプレート化）
      * @tparam T double 型 or ceres::jet 型
@@ -40,7 +40,7 @@ int main() {
         // ガウシアンノイズの標準偏差
         double w_sigma = 1.0;
         // 乱数生成器
-        cv::RNG rng;                                 // OpenCV随机数产生器
+        cv::RNG rng;
         for (int i = 0; i < N; i++) {
             double x = i / 100.0;
             x_data.push_back(x);
@@ -49,7 +49,7 @@ int main() {
         }
     }
 
-    double ae = 2.0, be = -1.0, ce = 5.0;        // 估计参数值
+    double ae = 2.0, be = -1.0, ce = 5.0;
     double abc[3] = {ae, be, ce};
 
     ceres::Solver::Summary summary;
@@ -58,9 +58,9 @@ int main() {
         ceres::Problem problem;
         for (uint16_t i = 0; i < N; i++) {
             problem.AddResidualBlock(
-                    // 目的関数は CURVE_FITTING_COST・関数の引数は1・最適化パラメータは3
-                    new ceres::AutoDiffCostFunction<CURVE_FITTING_COST, 1, 3>(
-                            new CURVE_FITTING_COST(x_data[i], y_obs_data[i])
+                    // 目的関数は polynomial・関数の引数は1・最適化パラメータは3
+                    new ceres::AutoDiffCostFunction<polynomial, 1, 3>(
+                            new polynomial(x_data[i], y_obs_data[i])
                     ),
                     nullptr,
                     // 最適化の初期値
